@@ -1,10 +1,5 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-import re
-import unicodedata
 
 # 猫の特性を定義
 CAT_PERSONALITY = """
@@ -86,13 +81,13 @@ def generate_cat_response(tokenizer, model, device, user_input):
     """猫の応答を生成する関数"""
     # プロンプトを作成
     prompt = f"""
-{CAT_PERSONALITY}
+        {CAT_PERSONALITY}
 
-以下は猫と人間の会話例です：
-{CAT_EXAMPLES}
+        以下は猫と人間の会話例です：
+        {CAT_EXAMPLES}
 
-人間: {user_input}
-猫:"""
+        人間: {user_input}
+        猫:"""
     
     # 入力をトークナイズ
     inputs = tokenizer.encode(prompt, return_tensors="pt").to(device)
@@ -158,7 +153,7 @@ def main():
         # モデルをロード
         tokenizer, model, device = load_model(model_path)
         
-        print("===== 猫チャットボット =====")
+        print("===== catbot =====")
         print("「終了」と入力すると終了します。")
         
         # チャットループ
