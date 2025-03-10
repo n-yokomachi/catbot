@@ -1,6 +1,6 @@
 ---
 title: catbot
-emoji: 🐱
+emoji: 🐈
 colorFrom: yellow
 colorTo: purple
 sdk: streamlit

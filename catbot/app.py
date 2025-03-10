@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # ページ設定
 st.set_page_config(
     page_title="catbot",
-    page_icon="🐱",
+    page_icon="🐈",
     layout="centered"
 )
 
@@ -67,7 +67,7 @@ CAT_EXAMPLES = """
 def load_model():
     """モデルをロードする関数（キャッシュ付き）"""
     # Hugging Faceからモデルをロード（アップロードしたモデル名に置き換えてください）
-    model_path = "yokomachi/finetuned_catbot"  # あなたのHugging Faceユーザー名に置き換えてください
+    model_path = "yokomachi/rinnya"  # あなたのHugging Faceユーザー名に置き換えてください
     
     # トークナイザーとモデルをロード
     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
@@ -153,7 +153,7 @@ def generate_cat_response(tokenizer, model, device, user_input):
     return response
 
 # アプリのタイトルと説明
-st.title("🐱catbot")
+st.title("🐈catbot")
 st.markdown("""
 猫とじゃれあうチャットボット
 """)
@@ -165,8 +165,12 @@ if "messages" not in st.session_state:
 
 # 過去のメッセージを表示
 for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    if message["role"] == "assistant":
+        with st.chat_message(message["role"], avatar="🐈"):
+            st.markdown(message["content"])
+    else:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
 # モデルのロード（初回のみ実行され、その後はキャッシュから取得）
 try:
@@ -187,7 +191,7 @@ if prompt := st.chat_input("猫に話しかけてみよう"):
     
     if model_loaded:
         # 猫の応答を生成
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar="🐈"):
             with st.spinner("猫が考え中..."):
                 try:
                     response = generate_cat_response(tokenizer, model, device, prompt)
@@ -205,11 +209,11 @@ if prompt := st.chat_input("猫に話しかけてみよう"):
                     st.error(f"エラーが発生しました: {e}")
                     st.session_state.messages.append({"role": "assistant", "content": error_message})
     else:
-        with st.chat_message("assistant"):
+        with st.chat_message("assistant", avatar="🐈"):
             st.markdown("ﾆｬｰ...（モデルが読み込めませんでした）")
             st.session_state.messages.append({"role": "assistant", "content": "ﾆｬｰ...（モデルが読み込めませんでした）"})
 
 # 会話をクリアするボタン
 if st.button("会話をクリア"):
     st.session_state.messages = []
-    st.experimental_rerun()
+    st.rerun()
