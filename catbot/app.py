@@ -1,6 +1,27 @@
 import streamlit as st
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import nest_asyncio
+import os
+from dotenv import load_dotenv
+from langchain_huggingface import HuggingFacePipeline
+from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+# .envファイルから環境変数を読み込む
+load_dotenv()
+
+# LangSmith関連の環境変数を設定
+os.environ["LANGSMITH_TRACING"] = os.getenv("LANGSMITH_TRACING")
+os.environ["LANGSMITH_ENDPOINT"] = os.getenv("LANGSMITH_ENDPOINT")
+os.environ["LANGSMITH_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
+os.environ["LANGSMITH_PROJECT"] = os.getenv("LANGSMITH_PROJECT")
+
+# nest_asyncioを適用
+nest_asyncio.apply()
+
+# torch.classes.__path__を空のリストに設定
+torch.classes.__path__ = []
 
 # ページ設定
 st.set_page_config(
@@ -64,14 +85,18 @@ CAT_EXAMPLES = """
 """
 
 @st.cache_resource
-def load_model():
-    """モデルをロードする関数（キャッシュ付き）"""
-    # Hugging Faceからモデルをロード（アップロードしたモデル名に置き換えてください）
-    model_path = "yokomachi/rinnya"  # あなたのHugging Faceユーザー名に置き換えてください
+def load_langchain_model():
+    """LangChainモデルをロードする関数（キャッシュ付き）"""
+    # Hugging Faceからモデルをロード
+    model_path = "yokomachi/rinnya"
     
     # トークナイザーとモデルをロード
     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
     tokenizer.do_lower_case = True  # rinnaモデル用の設定
+    
+    # パディングトークンの設定
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     
     # モデルをロード
     model = AutoModelForCausalLM.from_pretrained(model_path)
@@ -80,11 +105,53 @@ def load_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     
-    # パディングトークンの設定
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    # Hugging Face pipelineの作成
+    # Torchのエラーを回避するために設定を修正
+    text_generation_pipeline = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_new_tokens=50,
+        temperature=0.7,
+        top_p=0.9,
+        top_k=40,
+        repetition_penalty=1.2,
+        do_sample=True,
+        pad_token_id=tokenizer.pad_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        # no_repeat_ngram_sizeパラメータを削除（問題の原因となる可能性があるため）
+    )
     
-    return tokenizer, model, device
+    # LangChain HuggingFacePipelineの作成
+    llm = HuggingFacePipeline(pipeline=text_generation_pipeline)
+    
+    # プロンプトテンプレートの作成
+    template = """
+{cat_personality}
+
+以下は猫と人間の会話例です：
+{cat_examples}
+
+人間: {user_input}
+猫:"""
+    
+    prompt = PromptTemplate(
+        input_variables=["cat_personality", "cat_examples", "user_input"],
+        template=template
+    )
+    
+    # 新しいRunnableSequenceの作成
+    chain = (
+        {
+            "cat_personality": lambda x: CAT_PERSONALITY,
+            "cat_examples": lambda x: CAT_EXAMPLES,
+            "user_input": RunnablePassthrough()
+        } 
+        | prompt 
+        | llm
+    )
+    
+    return chain, device
 
 def extract_cat_response(generated_text):
     """生成されたテキストから猫の応答部分を抽出する関数"""
@@ -111,53 +178,28 @@ def post_process_response(response):
     
     return response
 
-def generate_cat_response(tokenizer, model, device, user_input):
-    """猫の応答を生成する関数"""
-    # プロンプトを作成
-    prompt = f"""
-{CAT_PERSONALITY}
-
-以下は猫と人間の会話例です：
-{CAT_EXAMPLES}
-
-人間: {user_input}
-猫:"""
-    
-    # 入力をトークナイズ
-    inputs = tokenizer.encode(prompt, return_tensors="pt").to(device)
+def generate_cat_response_with_langchain(chain, user_input):
+    """LangChainを使って猫の応答を生成する関数"""
     
     # 応答を生成
-    with torch.no_grad():
-        outputs = model.generate(
-            inputs,
-            max_new_tokens=50,
-            temperature=0.7,
-            top_p=0.9,
-            top_k=40,
-            repetition_penalty=1.2,
-            do_sample=True,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            no_repeat_ngram_size=3
-        )
+    result = chain.invoke(user_input)
     
-    # 生成されたテキストをデコード
-    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # 結果から応答テキストを取得
+    generated_text = result
     
     # 応答を抽出
     response = extract_cat_response(generated_text)
     
-    # 応答を後処理（最小限）
+    # 応答を後処理
     response = post_process_response(response)
     
     return response
 
 # アプリのタイトルと説明
-st.title("🐈catbot")
+st.title("🐈 catbot")
 st.markdown("""
 猫とじゃれあうチャットボット
 """)
-
 
 # セッション状態の初期化
 if "messages" not in st.session_state:
@@ -174,7 +216,7 @@ for message in st.session_state.messages:
 
 # モデルのロード（初回のみ実行され、その後はキャッシュから取得）
 try:
-    tokenizer, model, device = load_model()
+    chain, device = load_langchain_model()
     model_loaded = True
 except Exception as e:
     st.error(f"モデルのロード中にエラーが発生しました: {e}")
@@ -194,12 +236,8 @@ if prompt := st.chat_input("猫に話しかけてみよう"):
         with st.chat_message("assistant", avatar="🐈"):
             with st.spinner("猫が考え中..."):
                 try:
-                    response = generate_cat_response(tokenizer, model, device, prompt)
+                    response = generate_cat_response_with_langchain(chain, prompt)
                     st.markdown(response)
-                    
-                    # 猫の画像をランダムに表示（オプション）
-                    if "ﾆｬｯ" in response or "ﾆｬｰ" in response:
-                        st.image("https://placekitten.com/300/200", caption="にゃー")
                     
                     # 応答を履歴に追加
                     st.session_state.messages.append({"role": "assistant", "content": response})
@@ -216,4 +254,4 @@ if prompt := st.chat_input("猫に話しかけてみよう"):
 # 会話をクリアするボタン
 if st.button("会話をクリア"):
     st.session_state.messages = []
-    st.rerun()
+    st.rerun() 
