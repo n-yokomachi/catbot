@@ -18,7 +18,8 @@ https://huggingface.co/spaces/yokomachi/catbot
     - チャットボットやファインチューニングでは直接リポジトリを参照できるのでこのスクリプトは必須ではない
 - catbot/
     - streamlit製、Hugging Face Spacesで公開するデモアプリ
-
+- catbot_mcp/
+    - Hugging Faceのrinnyaモデルを使用してテキスト生成を行うMCPサーバ
 
 
 また、以下のリソースをHugging Faceで公開  
